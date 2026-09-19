@@ -25,8 +25,8 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.5.3",
     "morgan": "^1.10.0",
-    "otpauth": "^9.3.2",
-    "qrcode": "^1.5.4"
+    "@paulmillr/qr": "^0.3.0",
+    "otpauth": "^9.3.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.0",
@@ -35,7 +35,6 @@
     "@types/jest": "^30.0.0",
     "@types/jsonwebtoken": "^9.0.6",
     "@types/morgan": "^1.9.9",
-    "@types/qrcode": "^1.5.5",
     "eslint": "^9.9.0",
     "globals": "^15.9.0",
     "jest": "^29.7.0",

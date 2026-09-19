@@ -1,7 +1,9 @@
 import jwt from 'jsonwebtoken';
 import {NextFunction, Request, Response} from 'express';
 import {TOTP, Secret} from 'otpauth';
-import QRCode from 'qrcode';
+import encodeQR from '@paulmillr/qr';
+import {LoginResponse, TwoFASetupResponse, UserResponse} from '@sharedTypes/MessageTypes';
+import {UserWithNoPassword} from '@sharedTypes/DBTypes';
 import CustomError from '../../classes/CustomError';
 import TwoFAModel from '../models/twoFAModel';
 
@@ -41,10 +43,7 @@ const setupTwoFA = async (
       }),
     });
 
-    const authData = (await authResponse.json()) as {
-      message?: string;
-      user?: {user_id?: number; userId?: number; email?: string};
-    };
+    const authData = (await authResponse.json()) as UserResponse;
 
     if (!authResponse.ok) {
       next(
@@ -56,11 +55,7 @@ const setupTwoFA = async (
       return;
     }
 
-    const userId = authData.user?.user_id ?? authData.user?.userId;
-    if (!userId) {
-      next(new CustomError('User was created without an ID', 500));
-      return;
-    }
+    const userId = authData.user.user_id;
 
     const secret = new Secret({size: 32});
     const totp = new TOTP({
@@ -73,9 +68,9 @@ const setupTwoFA = async (
     });
 
     const otpauthUri = totp.toString();
-    const qrCodeDataUrl = await QRCode.toDataURL(otpauthUri);
+    const qrCodeSvg = encodeQR(otpauthUri, 'svg');
 
-    await TwoFAModel.findOneAndUpdate(
+    const mfaRecord = await TwoFAModel.findOneAndUpdate(
       {email: email.toLowerCase()},
       {
         userId,
@@ -87,14 +82,20 @@ const setupTwoFA = async (
       {upsert: true, new: true, setDefaultsOnInsert: true},
     );
 
-    res.status(201).json({
+    if (!mfaRecord) {
+      next(new CustomError('MFA setup could not be completed', 500));
+      return;
+    }
+
+    const response: TwoFASetupResponse = {
       message: 'MFA setup successful',
-      qrCodeDataUrl,
-      otpauthUri,
+      qrCodeSvg,
       userId,
       email: email.toLowerCase(),
       enabled: true,
-    });
+    };
+
+    res.status(201).json(response);
   } catch (error) {
     next(new CustomError((error as Error).message, 500));
   }
@@ -102,7 +103,7 @@ const setupTwoFA = async (
 
 const verifyTwoFA = async (
   req: Request,
-  res: Response,
+  res: Response<LoginResponse>,
   next: NextFunction,
 ) => {
   const {email, code} = req.body as {email?: string; code?: string};
@@ -144,26 +145,7 @@ const verifyTwoFA = async (
       return;
     }
 
-    const userData = (await userResponse.json()) as {
-      user?: {
-        user_id?: number;
-        username?: string;
-        email?: string;
-        created_at?: string | Date;
-        level_name?: string;
-      };
-      user_id?: number;
-      username?: string;
-      email?: string;
-      created_at?: string | Date;
-      level_name?: string;
-    };
-
-    const user = userData.user ?? userData;
-    if (!user || !user.email) {
-      next(new CustomError('User not found', 404));
-      return;
-    }
+    const user = (await userResponse.json()) as UserWithNoPassword;
 
     if (!process.env.JWT_SECRET) {
       next(new CustomError('JWT secret not set', 500));
@@ -179,19 +161,19 @@ const verifyTwoFA = async (
       {expiresIn: '1h'},
     );
 
-    const safeUser = {
-      user_id: user.user_id ?? mfaRecord.userId,
-      username: user.username ?? '',
-      email: user.email,
-      created_at: user.created_at ?? new Date().toISOString(),
-      level_name: user.level_name ?? 'User',
-    };
-
-    res.json({
+    const response: LoginResponse = {
       message: 'Login successful',
       token,
-      user: safeUser,
-    });
+      user: {
+      user_id: user.user_id,
+      username: user.username,
+      email: user.email,
+      created_at: user.created_at,
+      level_name: user.level_name,
+      },
+    };
+
+    res.json(response);
   } catch (error) {
     next(new CustomError((error as Error).message, 500));
   }
