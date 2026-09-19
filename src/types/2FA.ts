@@ -3,6 +3,8 @@ type TwoFA = {
   email: string;
   twoFactorSecret: string;
   twoFactorEnabled: boolean;
+  createdAt?: Date;
+  updatedAt?: Date;
 };
 
 export {TwoFA};
